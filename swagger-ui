@@ -39,14 +39,10 @@ start_swagger_ui() {
       spec_file_path="$(pwd)/$spec_file_path"
   fi
 
-  local spec_dir
-  local spec_filename
-  spec_dir=$(dirname "$spec_file_path")
-  spec_filename=$(basename "$spec_file_path")
+
 
   echo "------------------------------------------------------------"
   echo "Starting Swagger UI for: $spec_filename"
-  echo "Mounting directory:      $spec_dir"
   echo "------------------------------------------------------------"
 
   # Check if a container with this name is already running
@@ -54,13 +50,12 @@ start_swagger_ui() {
       echo "A 'swagger-ui-viewer' container is already running. Stopping it first."
       docker stop swagger-ui-viewer > /dev/null
   fi
-
   docker run \
     --rm \
     --name swagger-ui-viewer \
     -p "$PORT":8080 \
-    -v "$spec_dir":/usr/share/nginx/html/spec \
-    -e SWAGGER_JSON="/spec/$spec_filename" \
+    -v "${spec_file_path}:/data/swagger.json" \
+    -e SWAGGER_JSON="/data/swagger.json" \
     "$DOCKER_IMAGE" &
 
   # Give Docker a moment to start up
