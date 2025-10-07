@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# This script logs into AWS ECR by automatically retrieving the AWS Account ID.
+# The AWS region must be provided as the first argument.
+
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+# Check if the region parameter is supplied
+if [ -z "$1" ]; then
+  echo "Error: AWS region not provided."
+  echo "Usage: ./ecr-login.sh <aws-region>"
+  exit 1
+fi
+
+REGION=$1
+
+echo "Retrieving AWS Account ID..."
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+
+if [ -z "$ACCOUNT_ID" ]; then
+    echo "Error: Could not retrieve AWS Account ID. Please check your AWS CLI configuration."
+    exit 1
+fi
+
+echo "AWS Account ID found: $ACCOUNT_ID"
+echo "Logging into ECR for region: $REGION"
+
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+
+echo "Login Succeeded."

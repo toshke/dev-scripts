@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+
+# ---
+# view-spec.sh: A script to easily view OpenAPI/Swagger specs using Swagger UI in Docker.
+#
+# Usage:
+#   1. With a specific file: ./view-spec.sh /path/to/your/api.yaml
+#   2. Interactively:       ./view-spec.sh
+#
+# Dependencies: docker, jq
+# ---
+
+# --- Configuration ---
+# The directory to search for specs when no file is provided.
+# The '~' will be expanded correctly.
+SPEC_DIR=~/workspace/openapi-spec
+DOCKER_IMAGE="swaggerapi/swagger-ui"
+PORT="8080"
+
+# --- Helper Functions ---
+
+# Function to check for required commands
+check_dependencies() {
+  for cmd in docker jq; do
+    if ! command -v "$cmd" &> /dev/null; then
+      echo "Error: Required command '$cmd' is not installed."
+      echo "Please install it and try again."
+      exit 1
+    fi
+  done
+}
+
+# Function to start the Swagger UI container
+start_swagger_ui() {
+  local spec_file_path="$1"
+
+  # Resolve to an absolute path to avoid issues with Docker mounts
+  if [[ "$spec_file_path" != /* ]]; then
+      spec_file_path="$(pwd)/$spec_file_path"
+  fi
+
+  local spec_dir
+  local spec_filename
+  spec_dir=$(dirname "$spec_file_path")
+  spec_filename=$(basename "$spec_file_path")
+
+  echo "------------------------------------------------------------"
+  echo "Starting Swagger UI for: $spec_filename"
+  echo "Mounting directory:      $spec_dir"
+  echo "------------------------------------------------------------"
+
+  # Check if a container with this name is already running
+  if [ "$(docker ps -q -f name=swagger-ui-viewer)" ]; then
+      echo "A 'swagger-ui-viewer' container is already running. Stopping it first."
+      docker stop swagger-ui-viewer > /dev/null
+  fi
+
+  docker run \
+    --rm \
+    --name swagger-ui-viewer \
+    -p "$PORT":8080 \
+    -v "$spec_dir":/usr/share/nginx/html/spec \
+    -e SWAGGER_JSON="/spec/$spec_filename" \
+    "$DOCKER_IMAGE" &
+
+  # Give Docker a moment to start up
+  sleep 2
+
+  echo ""
+  echo "✅ Swagger UI is now running!"
+  echo "   View your spec at: http://localhost:$PORT"
+  echo ""
+  echo "   To stop the container, press Ctrl+C in this terminal or run:"
+  echo "   docker stop swagger-ui-viewer"
+  echo ""
+
+  # Wait for the user to press Ctrl+C
+  wait
+}
+
+# --- Main Logic ---
+
+# First, check for dependencies
+check_dependencies
+
+# Case 1: A file is provided as an argument
+if [ "$#" -eq 1 ]; then
+  FILE_ARG="$1"
+  if [ ! -f "$FILE_ARG" ]; then
+    echo "Error: File not found at '$FILE_ARG'"
+    exit 1
+  fi
+  start_swagger_ui "$FILE_ARG"
+  exit 0
+fi
+
+# Case 2: No file provided, start interactive mode
+echo "No file provided. Searching for specs in $SPEC_DIR..."
+
+if [ ! -d "$SPEC_DIR" ]; then
+  echo "Error: Directory not found: $SPEC_DIR"
+  echo "Please create it or change the SPEC_DIR variable in the script."
+  exit 1
+fi
+
+# Find valid OpenAPI/Swagger files using jq
+valid_specs=()
+for file in "$SPEC_DIR"/*; do
+  if [ -f "$file" ]; then
+    # A file is considered a spec if it contains a top-level "openapi" or "swagger" key.
+    # The '-e' flag in jq sets the exit code, so we don't need to capture output.
+    if jq -e '.openapi or .swagger' "$file" > /dev/null 2>&1; then
+      valid_specs+=("$file")
+    fi
+  fi
+done
+
+# Check if any valid specs were found
+if [ ${#valid_specs[@]} -eq 0 ]; then
+  echo "No valid OpenAPI/Swagger spec files found in $SPEC_DIR."
+  exit 0
+fi
+
+# Present the user with a selection menu
+echo "Found valid spec files. Please choose one:"
+PS3="Enter the number of the spec to view: "
+select selected_spec in "${valid_specs[@]}"; do
+  if [[ -n "$selected_spec" ]]; then
+    start_swagger_ui "$selected_spec"
+    break
+  else
+    echo "Invalid selection. Please try again."
+  fi
+done
